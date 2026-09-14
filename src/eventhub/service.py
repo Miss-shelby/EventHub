@@ -162,8 +162,14 @@ class EventService:
         ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
         MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 Megabytes limit per image
 
-        upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-        os.makedirs(upload_dir, exist_ok=True)
+        import tempfile
+        try:
+            upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+        except OSError:
+            upload_dir = os.path.join(tempfile.gettempdir(), "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+
 
         saved_image_urls: list[str] = []
 

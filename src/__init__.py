@@ -7,15 +7,21 @@ from src.eventhub.routes import event_router
 from contextlib import asynccontextmanager
 from src.db.main import init_db
 
+import tempfile
+
 # ---------------------------------------------------------------------------------
 # DIRECTORY PATHS SETUP
 # ---------------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(__file__)
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(FRONTEND_DIR, exist_ok=True)
+try:
+    UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+except OSError:
+    UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "uploads")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 
 @asynccontextmanager
 async def life_span(app:FastAPI):    #What should happen during the life of my server?"
