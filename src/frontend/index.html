@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EventHub — API Testing & Management Dashboard</title>
+  <meta name="description" content="Visual testing dashboard for EventHub FastAPI & Neon PostgreSQL backend">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/frontend/styles.css">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-icon">🎟️</div>
+        <div>
+          <h1 class="brand-title">EventHub Dashboard</h1>
+          <p class="brand-tagline">FastAPI + Neon PostgreSQL Live Test Console</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="status-badge" id="server-status-badge">
+          <span class="pulse-dot"></span>
+          <span id="db-status-text">Connected to Neon DB</span>
+        </div>
+        <button class="btn btn-secondary" onclick="loadEvents()" title="Refresh live data from database">
+          <span>🔄 Refresh Data</span>
+        </button>
+        <a href="/docs" target="_blank" class="btn btn-secondary" id="open-swagger-btn">
+          <span>Swagger Docs ↗</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Live Neon Database Connection Info Strip -->
+    <section class="db-live-banner" aria-label="Database Status">
+      <div class="db-live-left">
+        <span class="db-badge">Live PostgreSQL</span>
+        <span>Fetching live records from table: <strong style="color: var(--text-primary);">events</strong></span>
+      </div>
+      <div class="db-live-right">
+        <span>Endpoint: </span>
+        <span class="db-endpoint-pill">GET /api/v1/events/</span>
+      </div>
+    </section>
+
+    <!-- Stats Bar -->
+    <section class="stats-grid" aria-label="Quick Stats">
+      <div class="stat-card">
+        <div class="stat-label">Total Events in DB</div>
+        <div class="stat-value" id="stat-total-events">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Upcoming Events</div>
+        <div class="stat-value" id="stat-upcoming-events">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Capacity</div>
+        <div class="stat-value" id="stat-total-capacity">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Registered</div>
+        <div class="stat-value" id="stat-total-registered">0</div>
+      </div>
+    </section>
+
+    <!-- Search & Filter Controls -->
+    <section class="controls-bar" aria-label="Controls">
+      <div class="search-filter-group">
+        <div class="search-input-wrapper">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            id="search-input" 
+            class="search-input" 
+            placeholder="Search live events by name, location, or organizer..."
+          >
+        </div>
+        <select id="category-filter" class="filter-select">
+          <option value="ALL">All Categories</option>
+          <option value="Technology">Technology</option>
+          <option value="Community">Community</option>
+          <option value="Music">Music</option>
+          <option value="Workshop">Workshop</option>
+          <option value="Business">Business</option>
+          <option value="Other">Other</option>
+        </select>
+        <select id="status-filter" class="filter-select">
+          <option value="ALL">All Statuses</option>
+          <option value="upcoming">Upcoming</option>
+          <option value="ongoing">Ongoing</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="btn-open-create-modal">
+        <span>+ Create New Event</span>
+      </button>
+    </section>
+
+    <!-- Events Grid -->
+    <main>
+      <div class="events-grid" id="events-container">
+        <!-- Rendered dynamically by app.js from live backend -->
+        <div class="empty-state">
+          <div class="empty-icon">⏳</div>
+          <h3 class="empty-title">Loading events from Neon PostgreSQL...</h3>
+          <p class="empty-text">Connecting to GET /api/v1/events/ ...</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- CREATE EVENT MODAL -->
+  <div class="modal-overlay" id="create-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="modal-title">Create New Event</h2>
+        <button class="modal-close" data-close-modal="create-modal">&times;</button>
+      </div>
+      <form id="create-event-form">
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group full-width">
+              <label class="form-label" for="create-name">Event Name *</label>
+              <input type="text" id="create-name" class="form-input" required placeholder="Event name">
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label" for="create-description">Description *</label>
+              <textarea id="create-description" class="form-textarea" required placeholder="Event description"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-category">Category *</label>
+              <select id="create-category" class="form-select" required>
+                <option value="Technology">Technology</option>
+                <option value="Community">Community</option>
+                <option value="Music">Music</option>
+                <option value="Workshop">Workshop</option>
+                <option value="Business">Business</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-status">Status *</label>
+              <select id="create-status" class="form-select" required>
+                <option value="upcoming">Upcoming</option>
+                <option value="ongoing">Ongoing</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-date">Date (YYYY-MM-DD) *</label>
+              <input type="date" id="create-date" class="form-input" required>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-time">Event Time (HH:MM:SS) *</label>
+              <input type="time" id="create-time" class="form-input" step="1" required value="09:00:00">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-location">Location *</label>
+              <input type="text" id="create-location" class="form-input" required placeholder="Location address / venue">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-organizer">Organizer *</label>
+              <input type="text" id="create-organizer" class="form-input" required placeholder="Organizer name">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-price">Price *</label>
+              <input type="number" id="create-price" class="form-input" required min="0" value="0">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-capacity">Total Capacity *</label>
+              <input type="number" id="create-capacity" class="form-input" required min="1" value="100">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="create-registered">Registered Attendees *</label>
+              <input type="number" id="create-registered" class="form-input" required min="0" value="0">
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label">Upload Event Images (.jpg, .png, .webp)</label>
+              <div class="dropzone" id="create-dropzone">
+                <div class="dropzone-icon">📷</div>
+                <div class="dropzone-text">Click or drag & drop image files to upload</div>
+                <div class="dropzone-subtext">JPG, PNG, WEBP, GIF (Max 5MB each)</div>
+                <input type="file" id="create-image-file-input" multiple accept="image/*" style="display: none;">
+              </div>
+              <div class="preview-grid" id="create-upload-previews"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="create-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-create">Create Event</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- EDIT EVENT MODAL -->
+  <div class="modal-overlay" id="edit-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="modal-title">Edit Event & Images</h2>
+        <button class="modal-close" data-close-modal="edit-modal">&times;</button>
+      </div>
+      <form id="edit-event-form">
+        <input type="hidden" id="edit-uid">
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group full-width">
+              <label class="form-label" for="edit-name">Event Name</label>
+              <input type="text" id="edit-name" class="form-input" required>
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label" for="edit-description">Description</label>
+              <textarea id="edit-description" class="form-textarea" required></textarea>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-category">Category</label>
+              <select id="edit-category" class="form-select">
+                <option value="Technology">Technology</option>
+                <option value="Community">Community</option>
+                <option value="Music">Music</option>
+                <option value="Workshop">Workshop</option>
+                <option value="Business">Business</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-status">Status</label>
+              <select id="edit-status" class="form-select">
+                <option value="upcoming">Upcoming</option>
+                <option value="ongoing">Ongoing</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-date">Date (YYYY-MM-DD)</label>
+              <input type="date" id="edit-date" class="form-input">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-time">Event Time (HH:MM:SS)</label>
+              <input type="time" id="edit-time" class="form-input" step="1">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-location">Location</label>
+              <input type="text" id="edit-location" class="form-input">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-organizer">Organizer</label>
+              <input type="text" id="edit-organizer" class="form-input">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-price">Price</label>
+              <input type="number" id="edit-price" class="form-input" min="0">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-capacity">Capacity</label>
+              <input type="number" id="edit-capacity" class="form-input" min="1">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="edit-registered">Registered Count</label>
+              <input type="number" id="edit-registered" class="form-input" min="0">
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label">Current Event Images</label>
+              <div class="preview-grid" id="edit-current-images" style="margin-bottom: 1rem;"></div>
+              
+              <label class="form-label">Upload New Images (.jpg, .png, .webp)</label>
+              <div class="dropzone" id="edit-dropzone">
+                <div class="dropzone-icon">📷</div>
+                <div class="dropzone-text">Click or drag & drop to upload new images</div>
+                <div class="dropzone-subtext">JPG, PNG, WEBP, GIF (Max 5MB each)</div>
+                <input type="file" id="edit-image-file-input" multiple accept="image/*" style="display: none;">
+              </div>
+              <div class="preview-grid" id="edit-upload-previews"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="edit-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-edit">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- IMAGE UPLOAD MODAL -->
+  <div class="modal-overlay" id="upload-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="modal-title">Upload Event Images</h2>
+        <button class="modal-close" data-close-modal="upload-modal">&times;</button>
+      </div>
+      <form id="upload-image-form">
+        <input type="hidden" id="upload-event-uid">
+        <div class="modal-body">
+          <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.875rem;">
+            Uploading files to <strong id="upload-event-title" style="color: var(--text-primary)"></strong>.
+            Images are saved to disk and recorded into your Neon PostgreSQL database.
+          </p>
+          <div class="dropzone" id="image-dropzone">
+            <div class="dropzone-icon">📷</div>
+            <div class="dropzone-text">Click or drag & drop image files here</div>
+            <div class="dropzone-subtext">Supports JPG, JPEG, PNG, WEBP, GIF (Max 5MB each)</div>
+            <input type="file" id="image-file-input" multiple accept="image/*" style="display: none;">
+          </div>
+          <div class="preview-grid" id="upload-previews"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="upload-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-upload">Upload Images</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- DELETE CONFIRMATION MODAL -->
+  <div class="modal-overlay" id="delete-modal">
+    <div class="modal-box" style="max-width: 440px;">
+      <div class="modal-header">
+        <h2 class="modal-title">Confirm Deletion</h2>
+        <button class="modal-close" data-close-modal="delete-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-secondary); font-size: 0.9375rem;">
+          Are you sure you want to delete <strong id="delete-event-name" style="color: #f87171;"></strong>?
+          This will permanently remove the event from Neon PostgreSQL.
+        </p>
+        <input type="hidden" id="delete-event-uid">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="delete-modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="btn-confirm-delete">Delete Permanently</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/frontend/app.js"></script>
+</body>
+</html>
