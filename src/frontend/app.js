@@ -80,15 +80,15 @@ function setupEventListeners() {
 // DROPZONE SETUP HELPERS
 // ---------------------------------------------------------------------------------
 function setupAllDropzones() {
-  // 1. Create Modal Dropzone
+  // 1. Create Modal Dropzone — accumulate across multiple selections
   attachDropzoneEvents('create-dropzone', 'create-image-file-input', (files) => {
-    createFiles = Array.from(files);
+    createFiles = [...createFiles, ...Array.from(files)];
     renderPreviews(createFiles, 'create-upload-previews');
   });
 
-  // 2. Edit Modal Dropzone
+  // 2. Edit Modal Dropzone — accumulate across multiple selections
   attachDropzoneEvents('edit-dropzone', 'edit-image-file-input', (files) => {
-    editFiles = Array.from(files);
+    editFiles = [...editFiles, ...Array.from(files)];
     renderPreviews(editFiles, 'edit-upload-previews');
   });
 
@@ -215,33 +215,36 @@ async function loadEvents() {
   }
 }
 
-// 2. CREATE EVENT (POST JSON + Optional Immediate Image Upload)
+// 2. CREATE EVENT (POST multipart/form-data — fields + images in one request)
 async function handleCreateEvent(e) {
   e.preventDefault();
   const btn = document.getElementById('btn-submit-create');
   btn.disabled = true;
-  btn.textContent = 'Creating in Neon DB...';
+  btn.textContent = createFiles.length > 0 ? 'Creating & uploading images...' : 'Creating in Neon DB...';
 
-  const payload = {
-    name: document.getElementById('create-name').value.trim(),
-    description: document.getElementById('create-description').value.trim(),
-    category: document.getElementById('create-category').value,
-    status: document.getElementById('create-status').value,
-    date: document.getElementById('create-date').value,
-    event_time: document.getElementById('create-time').value,
-    location: document.getElementById('create-location').value.trim(),
-    organizer: document.getElementById('create-organizer').value.trim(),
-    price: parseInt(document.getElementById('create-price').value, 10) || 0,
-    capacity: parseInt(document.getElementById('create-capacity').value, 10) || 1,
-    registered: parseInt(document.getElementById('create-registered').value, 10) || 0,
-    images: []
-  };
+  // Build FormData — all text fields + optional image files in a single request
+  const formData = new FormData();
+  formData.append('name',        document.getElementById('create-name').value.trim());
+  formData.append('description', document.getElementById('create-description').value.trim());
+  formData.append('category',    document.getElementById('create-category').value);
+  formData.append('status',      document.getElementById('create-status').value);
+  formData.append('date',        document.getElementById('create-date').value);
+  formData.append('event_time',  document.getElementById('create-time').value);
+  formData.append('location',    document.getElementById('create-location').value.trim());
+  formData.append('organizer',   document.getElementById('create-organizer').value.trim());
+  formData.append('price',       parseInt(document.getElementById('create-price').value, 10) || 0);
+  formData.append('capacity',    parseInt(document.getElementById('create-capacity').value, 10) || 1);
+  formData.append('registered',  parseInt(document.getElementById('create-registered').value, 10) || 0);
+
+  // Append image files under the 'files' key (optional — backend defaults to no images)
+  createFiles.forEach(file => formData.append('files', file));
 
   try {
+    // NOTE: Do NOT set Content-Type header manually — the browser sets multipart/form-data
+    // with the correct boundary automatically when you pass a FormData object.
     const res = await fetch(`${API_BASE}/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: formData
     });
 
     if (!res.ok) {
@@ -251,23 +254,7 @@ async function handleCreateEvent(e) {
 
     const createdEvent = await res.json();
 
-    // If images were selected in dropzone, upload them immediately to this event
-    if (createFiles.length > 0) {
-      btn.textContent = 'Uploading images...';
-      const formData = new FormData();
-      createFiles.forEach(file => formData.append('files', file));
-
-      const uploadRes = await fetch(`${API_BASE}/${createdEvent.uid}/images`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!uploadRes.ok) {
-        showToast('Event created, but some image uploads failed.', 'error');
-      }
-    }
-
-    showToast(`Event "${createdEvent.name}" created live in Neon DB!`, 'success');
+    showToast(`Event "${createdEvent.name}" created in Neon DB!`, 'success');
     closeModal(createModal);
     document.getElementById('create-event-form').reset();
     createFiles = [];
@@ -280,6 +267,7 @@ async function handleCreateEvent(e) {
     btn.textContent = 'Create Event';
   }
 }
+
 
 // 3. EDIT EVENT (PATCH + Optional Image Upload)
 function openEditModal(eventUid) {
@@ -333,32 +321,36 @@ async function handleUpdateEvent(e) {
   e.preventDefault();
   const btn = document.getElementById('btn-submit-edit');
   btn.disabled = true;
-  btn.textContent = 'Saving to Neon DB...';
+  btn.textContent = editFiles.length > 0 ? 'Saving & uploading images...' : 'Saving to Neon DB...';
 
   const uid = document.getElementById('edit-uid').value;
-  const payload = {
-    name: document.getElementById('edit-name').value.trim(),
-    description: document.getElementById('edit-description').value.trim(),
-    category: document.getElementById('edit-category').value,
-    status: document.getElementById('edit-status').value,
-    location: document.getElementById('edit-location').value.trim(),
-    organizer: document.getElementById('edit-organizer').value.trim(),
-    price: parseInt(document.getElementById('edit-price').value, 10),
-    capacity: parseInt(document.getElementById('edit-capacity').value, 10),
-    registered: parseInt(document.getElementById('edit-registered').value, 10)
-  };
+
+  // Build FormData — fields + optional images in one multipart request
+  const formData = new FormData();
+  formData.append('name',        document.getElementById('edit-name').value.trim());
+  formData.append('description', document.getElementById('edit-description').value.trim());
+  formData.append('category',    document.getElementById('edit-category').value);
+  formData.append('status',      document.getElementById('edit-status').value);
+  formData.append('location',    document.getElementById('edit-location').value.trim());
+  formData.append('organizer',   document.getElementById('edit-organizer').value.trim());
+  formData.append('price',       parseInt(document.getElementById('edit-price').value, 10));
+  formData.append('capacity',    parseInt(document.getElementById('edit-capacity').value, 10));
+  formData.append('registered',  parseInt(document.getElementById('edit-registered').value, 10));
 
   const editDate = document.getElementById('edit-date').value;
-  if (editDate) payload.date = editDate;
+  if (editDate) formData.append('date', editDate);
 
   const editTime = document.getElementById('edit-time').value;
-  if (editTime) payload.event_time = editTime;
+  if (editTime) formData.append('event_time', editTime);
+
+  // Append any new image files selected in the edit dropzone
+  editFiles.forEach(file => formData.append('files', file));
 
   try {
+    // NOTE: No Content-Type header — browser sets multipart/form-data with boundary automatically
     const res = await fetch(`${API_BASE}/${uid}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: formData
     });
 
     if (!res.ok) {
@@ -366,24 +358,9 @@ async function handleUpdateEvent(e) {
       throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Update failed');
     }
 
-    // If new image files were added during edit, upload them
-    if (editFiles.length > 0) {
-      btn.textContent = 'Uploading new images...';
-      const formData = new FormData();
-      editFiles.forEach(file => formData.append('files', file));
-
-      const uploadRes = await fetch(`${API_BASE}/${uid}/images`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!uploadRes.ok) {
-        showToast('Event updated, but image upload failed.', 'error');
-      }
-    }
-
-    showToast('Event updated live in Neon DB!', 'success');
+    showToast('Event updated in Neon DB!', 'success');
     closeModal(editModal);
+    editFiles = [];
     await loadEvents();
   } catch (err) {
     showToast(`Update Error: ${err.message}`, 'error');

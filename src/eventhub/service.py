@@ -51,8 +51,13 @@ class EventService:
         result = await session.exec(statement)
         return result.first()
          
-    async def create_event(self, event_data: CreateEventModel, session: AsyncSession) -> EventModel:
-        # converts the eventdata which is in pydantic model to python dict 
+    async def create_event(
+        self,
+        event_data: CreateEventModel,
+        session: AsyncSession,
+        files: list[UploadFile] | None = None
+    ) -> EventModel:
+        # Convert the Pydantic model to a plain dict for the DB model
         event_data_dict = event_data.model_dump()
 
         # Parse date string to datetime safely
@@ -66,14 +71,26 @@ class EventService:
                     detail=f"Invalid date format '{raw_date}'. Expected format: YYYY-MM-DD (e.g. 2026-10-25)"
                 )
 
-        new_event_data = EventModel(**event_data_dict)
-        session.add(new_event_data)
+        # Create the event record with an empty images list for now
+        new_event = EventModel(**event_data_dict, images=[])
+        session.add(new_event)
         await session.commit()
-        await session.refresh(new_event_data)
-        return new_event_data
+        await session.refresh(new_event)
+
+        # If image files were included in the same request, process and save them now
+        if files:
+            new_event = await self.upload_event_images(str(new_event.uid), files, session)
+
+        return new_event
 
         
-    async def update_event(self, event_uid: str, update_event_data: EventUpdateModel, session: AsyncSession) -> EventModel | None:
+    async def update_event(
+        self,
+        event_uid: str,
+        update_event_data: EventUpdateModel,
+        session: AsyncSession,
+        files: list[UploadFile] | None = None
+    ) -> EventModel | None:
         # event to update is coming from db and should be in EventModel format 
         event_to_update = await self.get_event(event_uid, session)
         if event_to_update is not None:
@@ -112,9 +129,15 @@ class EventService:
             session.add(event_to_update)
             await session.commit()
             await session.refresh(event_to_update)
+
+            # If new image files were included in the same request, save and append them now
+            if files:
+                event_to_update = await self.upload_event_images(str(event_to_update.uid), files, session)
+
             return event_to_update
         else:
             return None
+
         
     async def delete_event(self,event_uid:str,session:AsyncSession):
         event_to_delete = await self.get_event(event_uid,session)

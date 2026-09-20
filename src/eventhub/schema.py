@@ -50,7 +50,6 @@ class CreateEventModel(BaseModel):
     event_time: time
     location: str
     organizer: str
-    images: list[str] | None = None
     capacity: int = 100
     registered: int = 0
     price: int = 0

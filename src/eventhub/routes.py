@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, status, Header, Depends, UploadFile, File
+from fastapi import APIRouter, Query, status, Header, Depends, UploadFile, File, Form
 from fastapi.exceptions import HTTPException
 from typing import Annotated, Sequence
 from src.eventhub.schema import (
@@ -50,17 +50,42 @@ async def get_all_events(
 # 2. CREATE EVENT
 # ---------------------------------------------------------------------------------
 @event_router.post(
-    '/', 
+    '/',
     status_code=status.HTTP_201_CREATED,
     response_model=EventReadModel,
-    summary="Create a new event"
+    summary="Create a new event (multipart/form-data — fields + optional images in one request)"
 )
 async def create_event(
-    event_data: CreateEventModel,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    files: list[UploadFile] = File(default=[], description="Optional image files (.jpg, .png, .webp, .gif)"),
+    name: str = Form(...),
+    description: str = Form(...),
+    category: EventCategory = Form(...),
+    date: str = Form(...),
+    event_time: str = Form(...),
+    location: str = Form(...),
+    organizer: str = Form(...),
+    price: int = Form(0),
+    capacity: int = Form(100),
+    registered: int = Form(0),
+    status_field: EventStatus = Form(EventStatus.UPCOMING, alias="status"),
 ) -> EventModel:
-    new_event = await event_service.create_event(event_data, session)
+    event_data = CreateEventModel(
+        name=name,
+        description=description,
+        category=category,
+        date=date,
+        event_time=event_time,
+        location=location,
+        organizer=organizer,
+        price=price,
+        capacity=capacity,
+        registered=registered,
+        status=status_field,
+    )
+    new_event = await event_service.create_event(event_data, session, files or None)
     return new_event
+
 
 
 # ---------------------------------------------------------------------------------
@@ -86,26 +111,53 @@ async def get_event(
 
 
 # ---------------------------------------------------------------------------------
-# 4. UPDATE EVENT (PATCH)
+# 4. UPDATE EVENT (PATCH — multipart/form-data, all fields optional)
 # ---------------------------------------------------------------------------------
 @event_router.patch(
     '/{event_uid}',
     response_model=EventReadModel,
     status_code=status.HTTP_200_OK,
-    summary="Partially update an event"
+    summary="Partially update an event (multipart/form-data — all fields optional + optional images)"
 )
 async def update_event(
-    event_uid: str, 
-    event_update_data: EventUpdateModel,
-    session: AsyncSession = Depends(get_session)
+    event_uid: str,
+    session: AsyncSession = Depends(get_session),
+    files: list[UploadFile] = File(default=[], description="New image files to add (.jpg, .png, .webp, .gif)"),
+    name: str | None = Form(None),
+    description: str | None = Form(None),
+    category: EventCategory | None = Form(None),
+    date: str | None = Form(None),
+    event_time: str | None = Form(None),
+    location: str | None = Form(None),
+    organizer: str | None = Form(None),
+    price: int | None = Form(None),
+    capacity: int | None = Form(None),
+    registered: int | None = Form(None),
+    status_field: EventStatus | None = Form(None, alias="status"),
 ) -> EventModel:
-    updated_event = await event_service.update_event(event_uid, event_update_data, session)
+    # Only include fields that were actually sent in the request (not None)
+    update_fields: dict = {}
+    if name is not None:        update_fields['name'] = name
+    if description is not None: update_fields['description'] = description
+    if category is not None:    update_fields['category'] = category
+    if date is not None:        update_fields['date'] = date
+    if event_time is not None:  update_fields['event_time'] = event_time
+    if location is not None:    update_fields['location'] = location
+    if organizer is not None:   update_fields['organizer'] = organizer
+    if price is not None:       update_fields['price'] = price
+    if capacity is not None:    update_fields['capacity'] = capacity
+    if registered is not None:  update_fields['registered'] = registered
+    if status_field is not None: update_fields['status'] = status_field
+
+    event_update_data = EventUpdateModel(**update_fields)
+    updated_event = await event_service.update_event(event_uid, event_update_data, session, files or None)
     if updated_event is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Event with UID '{event_uid}' was not found and could not be updated."
         )
-    return updated_event 
+    return updated_event
+
 
 
 # ---------------------------------------------------------------------------------
