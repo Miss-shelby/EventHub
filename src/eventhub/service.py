@@ -1,5 +1,7 @@
 import os
 import uuid
+import cloudinary
+import cloudinary.uploader
 from datetime import datetime
 from fastapi import UploadFile, HTTPException, status
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -7,6 +9,20 @@ from sqlmodel import select, desc
 from typing import Sequence
 from .schema import CreateEventModel, EventUpdateModel, EventCategory, EventStatus
 from .models import EventModel
+from src.config import Config
+
+# ---------------------------------------------------------------------------------
+# CLOUDINARY CONFIGURATION
+# ---------------------------------------------------------------------------------
+# Cloudinary stores your images in the cloud and returns a permanent HTTPS URL.
+# This URL is what gets saved into the Neon Postgres 'images' array column.
+# ---------------------------------------------------------------------------------
+cloudinary.config(
+    cloud_name=Config.CLOUDINARY_CLOUD_NAME,
+    api_key=Config.CLOUDINARY_API_KEY,
+    api_secret=Config.CLOUDINARY_API_SECRET,
+    secure=True  # Always use HTTPS URLs
+)
 
 # create functions for all our crud operation 
 # we uses seesion to acces database its provided by sqlacademy 
@@ -149,15 +165,14 @@ class EventService:
             return None
 
     # ---------------------------------------------------------------------------------
-    # IMAGE UPLOAD HANDLER
+    # IMAGE UPLOAD HANDLER (Cloudinary)
     # ---------------------------------------------------------------------------------
-    # HOW NEON POSTGRES HANDLES IMAGES:
-    # 1. Neon Postgres stores tabular structured data (e.g. TEXT, ARRAY of VARCHAR).
-    # 2. Uploading raw MBs of image binary directly into a SQL database slows it down and bloats it.
-    # 3. Instead, we:
-    #    a) Save the physical image file (.jpg, .png, etc.) onto disk (or Cloudinary/S3 in production).
-    #    b) Generate a accessible web URL (e.g., "/static/abc-123.jpg").
-    #    c) Save that string into Neon Postgres's ARRAY(String) column: `event.images`.
+    # HOW THIS WORKS:
+    # 1. We read the image bytes from the uploaded file into memory.
+    # 2. We upload those bytes directly to Cloudinary — no disk writes needed.
+    # 3. Cloudinary returns a permanent HTTPS URL (e.g. https://res.cloudinary.com/...).
+    # 4. We save that URL string into Neon Postgres's ARRAY column: `event.images`.
+    # This works on any platform (Vercel, Railway, local) because nothing touches the filesystem.
     # ---------------------------------------------------------------------------------
     async def upload_event_images(
         self,
@@ -185,19 +200,10 @@ class EventService:
         ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
         MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 Megabytes limit per image
 
-        import tempfile
-        try:
-            upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-            os.makedirs(upload_dir, exist_ok=True)
-        except OSError:
-            upload_dir = os.path.join(tempfile.gettempdir(), "uploads")
-            os.makedirs(upload_dir, exist_ok=True)
-
-
         saved_image_urls: list[str] = []
 
         for file in files:
-            # Check content type and file extension
+            # Validate content type and file extension
             file_ext = os.path.splitext(file.filename or "")[1].lower()
             if file.content_type not in ALLOWED_CONTENT_TYPES and file_ext not in ALLOWED_EXTENSIONS:
                 raise HTTPException(
@@ -205,10 +211,10 @@ class EventService:
                     detail=f"Invalid file format '{file.filename}'. Allowed formats: JPG, PNG, WEBP, GIF."
                 )
 
-            # Check file size gracefully
             try:
-                # Read file contents into memory safely
+                # Read file bytes into memory
                 content = await file.read()
+
                 if len(content) == 0:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -220,38 +226,38 @@ class EventService:
                         detail=f"File '{file.filename}' exceeds maximum allowed size of 5MB."
                     )
 
-                # Generate a unique filename using UUID to prevent naming conflicts
-                unique_filename = f"{uuid.uuid4()}{file_ext if file_ext else '.jpg'}"
-                file_destination = os.path.join(upload_dir, unique_filename)
+                # Upload bytes directly to Cloudinary — no disk I/O, works on Vercel
+                # public_id: unique name for the file in your Cloudinary media library
+                # folder: organises uploads under 'eventhub/' in your Cloudinary dashboard
+                # resource_type: 'image' tells Cloudinary to apply image optimisations
+                upload_result = cloudinary.uploader.upload(
+                    content,
+                    public_id=str(uuid.uuid4()),
+                    folder="eventhub",
+                    resource_type="image",
+                    overwrite=False,
+                )
 
-                # Write binary data to disk
-                with open(file_destination, "wb") as f:
-                    f.write(content)
-
-                # Construct the static URL that the client/frontend can use
-                image_url = f"/static/{unique_filename}"
+                # Cloudinary returns a permanent HTTPS URL — this is what we store in the DB
+                image_url = upload_result["secure_url"]
                 saved_image_urls.append(image_url)
 
             except HTTPException:
-                # Re-raise HTTP exceptions as-is
                 raise
             except Exception as e:
-                # Gracefully catch filesystem or unexpected I/O errors
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to process image '{file.filename}': {str(e)}"
+                    detail=f"Failed to upload image '{file.filename}' to Cloudinary: {str(e)}"
                 )
             finally:
-                # Ensure the temporary uploaded file stream is closed
                 await file.close()
 
-        # Step 4: Append new image URLs to the existing list in Neon Postgres
-        # Note: Neon stores this as an ARRAY in PostgreSQL (e.g. ['/static/1.jpg', 'https://...'])
+        # Step 4: Append new Cloudinary URLs to the existing images array in Neon Postgres
         current_images = list(event.images or [])
         current_images.extend(saved_image_urls)
         event.images = current_images
 
-        # Step 5: Save changes in database
+        # Step 5: Save updated image list to database
         session.add(event)
         await session.commit()
         await session.refresh(event)
